@@ -1,0 +1,13 @@
+{% extends 'core.html' %}
+{% block title %}Under Construction{% endblock %}
+{% block content %}
+<div class="containter text-center">
+    <h1>Home</h1>
+    <a href="{% url 'simulator:upload_building_form' %}">
+        <button class="btn-outline">Test Building Form</button>
+    </a>
+    <a href="{% url 'simulator:building_list' %}">
+        <button class="btn-outline">Building List</button>
+    </a>
+</div>
+{% endblock %}

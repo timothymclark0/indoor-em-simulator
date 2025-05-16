@@ -1,0 +1,898 @@
+{% extends 'core.html' %}
+{% block title %}{{ building.name }} - {{ scenario.name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.5.0/ol.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
+<style>
+    /* Layout */
+    .navbar-brand img {
+        height: 40px;
+        margin-right: 10px;
+    }
+    /* override core style for map only */
+    main.container.mt-4 {
+        display: flex;
+        height: calc(100vh - 65px); /* Adjusted for navbar height */
+        width: 100vw;
+        margin-right: 0px;
+        margin-left: 0px;
+        max-width:100vw;
+        padding: 0px;
+        margin-top: 0px !important;
+    }
+    .sidebar {
+        width: 20%;
+        background: #f8f9fa;
+        padding: 20px;
+        overflow-y: auto;
+        transition: width 0.3s ease;
+        border-right: 1px solid #dee2e6;
+    }
+    .sidebar.collapsed {
+        width: 0;
+        padding: 0;
+        border-right: none;
+    }
+    .sidebar-toggle {
+        position: absolute;
+        left: 20%;
+        top: calc((100vh - 65px) / 2); /* Vertically centered */
+        transform: translateY(-50%);
+        z-index: 1000;
+        background: white;
+        border: 1px solid #dee2e6;
+        border-left: none;
+        border-radius: 0 4px 4px 0;
+        padding: 8px;
+        cursor: pointer;
+        transition: left 0.3s ease;
+    }
+    .sidebar-toggle.collapsed {
+        left: 0;
+    }
+    .map-container {
+        flex-grow: 1;
+        position: relative;
+    }
+    #map {
+        height: 100%;
+        width: 100%;
+    }
+
+    /* Floating Menu */
+    .floating-menu {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000; /* Ensure it's above map controls if they overlap */
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        min-width: 280px;
+        max-height: calc(100vh - 85px); /* Max height adjusted for padding */
+        overflow-y: auto;
+    }
+    .mode-buttons {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        margin-bottom: 15px;
+    }
+    .mode-button {
+        padding: 8px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+    .mode-button:hover {
+        background: #f8f9fa;
+    }
+    .mode-button.active {
+        background: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+    .mode-button:disabled, .mode-button.disabled {
+        background-color: #e9ecef;
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
+
+    /* Properties Panel */
+    .properties-panel {
+        padding-top: 15px;
+        border-top: 1px solid #dee2e6;
+        display: none; /* Initially hidden */
+    }
+     #capacity-container {
+        display: none; /* Initially hidden, shown for incident mode/selection */
+    }
+
+
+    /* Status Messages & Loading */
+    .status-message {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        border-radius: 4px;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        display: none;
+        z-index: 2000;
+    }
+    .status-message.success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+    .status-message.error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+    .status-message.info { background: #cce5ff; border: 1px solid #b8daff; color: #004085;}
+
+    .loading-indicator {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.9); padding: 20px; border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: none; z-index: 2000;
+    }
+    .form-switch .form-check-input { margin-left: -1.5em; }
+
+    /* Custom Map Controls (for select tools) */
+    .ol-custom-controls-container { /* New container for positioning */
+        position: absolute;
+        top: 0.5em; /* Default OL control top padding */
+        left: 0.5em;  /* Default OL control left padding */
+        z-index: 999; /* Below floating menu, above map */
+    }
+    .ol-custom-controls {
+        display: flex;
+        flex-direction: column; /* Stack buttons vertically like zoom */
+        background-color: rgba(255,255,255,0.8); /* Semi-transparent background */
+        border-radius: 4px;
+        padding: 2px; /* Similar to OL controls */
+        margin-top: 5px; /* Space below OL zoom controls if they are present */
+    }
+    .ol-custom-controls button {
+        background-color: rgba(255,255,255,0.8); /* Button background */
+        border: none; /* OL controls often have minimal borders */
+        color: black; /* Icon color */
+        width: 2em; /* Match OL zoom button size */
+        height: 2em; /* Match OL zoom button size */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 1px 0; /* Vertical margin for stacked buttons */
+        font-size: 1.14em; /* OL default control font size */
+        cursor: pointer;
+        border-radius: 2px; /* Subtle rounding */
+        line-height: 1.375em; /* For text if any, but icons are better */
+    }
+    .ol-custom-controls button.active {
+        background-color: rgba(0, 60, 136, 0.7); /* OL active blue, semi-transparent */
+        color: white;
+    }
+    .ol-custom-controls button:hover {
+        background-color: rgba(0, 60, 136, 0.5); /* OL hover blue, semi-transparent */
+        color: white;
+    }
+
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="sidebar" id="sidebar">
+    <h5>Quick Guide</h5>
+    <ul class="list-unstyled">
+        <li class="mb-3"><strong>Incidents (EvacGroups)</strong> <p class="small text-muted">Groups of people to evacuate. Each has a capacity.</p></li>
+        <li class="mb-3"><strong>Exits</strong> <p class="small text-muted">Safe locations for evacuation.</p></li>
+        <li class="mb-3"><strong>Barriers</strong> <p class="small text-muted">Obstacles or blocked paths.</p></li>
+    </ul>
+    <h5>Workflow</h5>
+    <ol class="small">
+        <li>Add Incidents, Exits, Barriers.</li>
+        <li>Use Edit mode (or select feature by clicking) to move/modify.</li>
+        <li>Calculate Routes. Invalid routes (gray) need recalculation after edits.</li>
+        <li>Run Simulation (when valid routes exist).</li>
+        <li>View Simulation Results. Lock editing if results are generated.</li>
+    </ol>
+    <div class="small text-muted mt-4">
+        <p><strong>Keyboard Shortcuts:</strong></p>
+        <ul class="list-unstyled">
+            <li>I - Incident Mode</li> <li>E - Exit Mode</li> <li>B - Barrier Mode</li>
+            <li>M - Edit Mode</li> <li>Esc - Cancel/Deselect</li> <li>Del - Delete Selected</li>
+        </ul>
+    </div>
+</div>
+
+<button class="sidebar-toggle" onclick="toggleSidebar()"><i class="bi bi-chevron-left"></i></button>
+
+<div class="map-container">
+    <div id="map"></div>
+
+    <div class="ol-custom-controls-container">
+        <div class="ol-custom-controls ol-unselectable">
+            <button type="button" id="select-mode-click" title="Select by Click (Default)" class="active"> <i class="bi bi-cursor-fill"></i>
+            </button>
+        </div>
+    </div>
+
+
+    <div class="floating-menu">
+        <div class="mb-3">
+            <label for="scenarioName" class="form-label">Scenario Name</label>
+            <input type="text" class="form-control form-control-sm" id="scenarioName" value="{{ scenario.name }}">
+        </div>
+
+        <div class="mode-buttons">
+            <button class="mode-button" data-mode="incident" title="Add Incident (I)"><i class="bi bi-person-exclamation me-1"></i> Incident</button>
+            <button class="mode-button" data-mode="exit" title="Add Exit (E)"><i class="bi bi-door-open me-1"></i> Exit</button>
+            <button class="mode-button" data-mode="barrier" title="Add Barrier (B)"><i class="bi bi-slash-square me-1"></i> Barrier</button>
+            <button class="mode-button" data-mode="edit" title="Edit Mode (M)"><i class="bi bi-pencil me-1"></i> Edit</button>
+        </div>
+
+        <div class="properties-panel" id="properties-panel">
+            <div class="mb-3" id="capacity-container">
+                <label for="capacity" class="form-label">Capacity</label>
+                <input type="number" class="form-control form-control-sm" id="capacity" min="1" value="1">
+            </div>
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary btn-sm" onclick="updateFeatureProperties()">Update Properties</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteSelectedFeatures()">Delete Selected</button>
+            </div>
+        </div>
+
+        <div class="mt-3 border-top pt-3">
+            <button id="calculate-routes-btn" class="btn btn-success w-100 mb-2" style="display: none;" onclick="calculateRoutes()"><i class="bi bi-geo-alt me-1"></i> Calculate Routes</button>
+            <button id="run-simulation-btn" class="btn btn-primary w-100 mb-2" style="display: none;" onclick="runSimulation()"><i class="bi bi-play-fill me-1"></i> Run Simulation</button>
+            <button id="view-simulation-results-btn" class="btn btn-info w-100 mb-2" style="display: none;" onclick="viewSimulationResults()"><i class="bi bi-graph-up me-1"></i> View Results</button>
+        </div>
+
+        <div class="mt-3 border-top pt-3">
+             <div class="form-check form-switch mb-2" id="edit-lock-container" style="display: none;">
+                <input class="form-check-input" type="checkbox" role="switch" id="editLockSwitch" onchange="toggleEditLock(this.checked)">
+                <label class="form-check-label" for="editLockSwitch">Lock Editing</label>
+            </div>
+            <button id="copy-scenario-btn" class="btn btn-secondary w-100 btn-sm" onclick="copyScenario()"><i class="bi bi-copy me-1"></i> Copy Scenario</button>
+        </div>
+    </div>
+</div>
+
+<div class="status-message" id="status-message"></div>
+<div class="loading-indicator" id="loading-indicator">
+    <div class="d-flex align-items-center"><div class="spinner-border text-primary me-2"></div><span id="loading-text">Loading...</span></div>
+</div>
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.5.0/dist/ol.js"></script>
+<script>
+// Globals
+let activeMode = null;
+let selectedFeature = null; 
+let selectedFeaturesCollection = new ol.Collection(); 
+let drawInteraction = null;
+let clickSelectInteraction = null; 
+// Removed dragBoxSelectInteraction
+let modifyInteraction = null;
+let scenarioLocked = false;
+let routesAreValid = false;
+let routesExist = false;
+let currentSelectTool = 'click'; // Only 'click' is now supported directly by select tools UI
+
+const scenarioId = {{ scenario.id }};
+const buildingId = {{ building.id }};
+const csrfToken = getCsrfToken();
+
+// --- Layer Definitions ---
+const geoJsonFormat = new ol.format.GeoJSON();
+// Geometries will be sent to backend in map's view projection (EPSG:3857 by default for OSM)
+// Backend should expect GeoJSON in this projection.
+const mapProjection = 'EPSG:3857'; // Or mainMap.getView().getProjection().getCode() after map init
+
+const drawSource = new ol.source.Vector({ wrapX: false });
+const drawnItemsLayer = new ol.layer.Vector({
+    source: drawSource,
+    style: new ol.style.Style({
+        image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: 'rgba(255, 255, 255, 0.4)' }), stroke: new ol.style.Stroke({ color: '#ffcc33', width: 2 }) }),
+        stroke: new ol.style.Stroke({ color: '#ffcc33', width: 2 })
+    })
+});
+
+// Style functions
+function styleEvacGroup(feature) {
+    return new ol.style.Style({
+        image: new ol.style.Circle({
+            radius: Math.max(5, parseInt(feature.get('capacity')) / 2 || 5),
+            fill: new ol.style.Fill({ color: 'rgb(51, 131, 250)' }),
+            stroke: new ol.style.Stroke({ color: 'rgb(14, 37, 71)', width: 1.5 })
+        })
+    });
+}
+const styleExit = new ol.style.Style({
+    image: new ol.style.RegularShape({ fill: new ol.style.Fill({color: 'orange'}), stroke: new ol.style.Stroke({color: 'black', width: 1}), points: 4, radius: 10, angle: Math.PI / 4 })
+});
+const styleBarrier = new ol.style.Style({ stroke: new ol.style.Stroke({ color:'red', width: 3 }) });
+
+function styleEvacRoute(feature) {
+    const isValid = feature.get('valid') !== false; 
+    return new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: isValid ? 'blue' : 'grey', width: isValid ? 3 : 2 })
+    });
+}
+
+const selectedFeatureStyle = new ol.style.Style({
+    image: new ol.style.Circle({ radius: 9, fill: new ol.style.Fill({color: 'rgba(255,0,0,0.3)'}), stroke: new ol.style.Stroke({color: 'red', width: 2}) }),
+    stroke: new ol.style.Stroke({ color: 'red', width: 4, lineDash: [6, 6] }),
+    fill: new ol.style.Fill({ color: 'rgba(255,0,0,0.1)' })
+});
+
+// Layer sources and layers
+const evacGroupsSource = new ol.source.Vector({ format: geoJsonFormat, url: `{% url 'simulator:api_geojson'%}?model=evac_group&fk=scenario&fk_id=${scenarioId}`});
+const evacGroupsLayer = new ol.layer.Vector({ source: evacGroupsSource, style: feature => styleEvacGroup(feature) });
+
+const exitsSource = new ol.source.Vector({ format: geoJsonFormat, url: `{% url 'simulator:api_geojson'%}?model=exit&fk=scenario&fk_id=${scenarioId}`});
+const exitsLayer = new ol.layer.Vector({ source: exitsSource, style: styleExit });
+
+const barriersSource = new ol.source.Vector({ format: geoJsonFormat, url: `{% url 'simulator:api_geojson'%}?model=barrier&fk=scenario&fk_id=${scenarioId}`});
+const barriersLayer = new ol.layer.Vector({ source: barriersSource, style: styleBarrier });
+
+const evacRoutesSource = new ol.source.Vector({ format: geoJsonFormat, url: `{% url 'simulator:api_geojson'%}?model=evac_route&fk=scenario&fk_id=${scenarioId}`});
+const evacRoutesLayer = new ol.layer.Vector({ source: evacRoutesSource, style: feature => styleEvacRoute(feature) });
+
+const levelSource = new ol.source.Vector({ format: geoJsonFormat, url: `{% url 'simulator:api_geojson'%}?model=level&fk=building&fk_id=${buildingId}` });
+const levelsLayer = new ol.layer.Vector({ source: levelSource, style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: 'black', width: 4 }), fill: new ol.style.Fill({ color: 'rgba(10,10,10,0.3)' }) }) });
+
+const detailSource = new ol.source.Vector({ format: geoJsonFormat, url: `{% url 'simulator:api_geojson'%}?model=detail&fk=level&fk_id=1`}); 
+const detailsLayer = new ol.layer.Vector({ source: detailSource, style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: 'black', width: 1 }) }) });
+
+const mainMap = new ol.Map({
+    target: "map",
+    layers: [ new ol.layer.Tile({ source: new ol.source.OSM() }), levelsLayer, detailsLayer, evacGroupsLayer, exitsLayer, barriersLayer, evacRoutesLayer, drawnItemsLayer ],
+    view: new ol.View({ center: [{{ center.x }}, {{ center.y }}], projection: mapProjection, zoom: 18 }), // Ensure mapProjection is used
+    controls: ol.control.defaults.defaults({ attributionOptions: { collapsible: true } }).extend([
+        new ol.control.ScaleLine(),
+        new ol.control.Zoom()
+    ]),
+});
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('scenarioName').addEventListener('change', updateScenarioName);
+    document.querySelectorAll('.mode-button').forEach(button => {
+        button.addEventListener('click', function() { setMode(this.dataset.mode); });
+    });
+    document.addEventListener('keydown', handleGlobalKeyDown);
+
+    initializeInteractions(); 
+    // setActiveSelectTool is now implicitly 'click' and managed by setMode('edit')
+    
+    loadInitialData();
+    checkSimulationStatus();
+});
+
+function handleGlobalKeyDown(event) {
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+    if (scenarioLocked && ['i', 'e', 'b', 'm', 'delete'].includes(event.key.toLowerCase())) {
+        showStatus("Editing is locked.", "info");
+        return;
+    }
+    switch(event.key.toLowerCase()) {
+        case 'i': setMode('incident'); break;
+        case 'e': setMode('exit'); break;
+        case 'b': setMode('barrier'); break;
+        case 'm': setMode('edit'); break;
+        case 'escape': cancelInteractionsAndDeselectMode(); break;
+        case 'delete': if (selectedFeaturesCollection.getLength() > 0) deleteSelectedFeatures(); break;
+    }
+}
+
+function loadInitialData() {
+    const sourcesToLoad = [evacGroupsSource, exitsSource, barriersSource, evacRoutesSource, levelSource, detailSource];
+    let loadedCount = 0;
+    sourcesToLoad.forEach(source => {
+        source.on('featuresloadend', () => {
+            source.getFeatures().forEach(feature => {
+                const properties = feature.getProperties();
+                if (properties.id && !feature.getId()) { 
+                    feature.setId(properties.id); 
+                }
+                if (!feature.get('featureType')) { 
+                    if (source === evacGroupsSource) feature.set('featureType', 'evac_group');
+                    else if (source === exitsSource) feature.set('featureType', 'exit');
+                    else if (source === barriersSource) feature.set('featureType', 'barrier');
+                    else if (source === evacRoutesSource) feature.set('featureType', 'evac_route');
+                }
+            });
+            loadedCount++;
+            if (loadedCount === sourcesToLoad.length) { 
+                checkRoutesState(); 
+            }
+        });
+        source.refresh();
+    });
+}
+
+
+// --- UI Interaction Functions ---
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.querySelector('.sidebar-toggle');
+    sidebar.classList.toggle('collapsed');
+    toggle.classList.toggle('collapsed');
+    const icon = toggle.querySelector('i');
+    icon.classList.toggle('bi-chevron-left');
+    icon.classList.toggle('bi-chevron-right');
+    setTimeout(() => mainMap.updateSize(), 310); 
+}
+
+function setMode(modeToSet, clearCurrentSelection = true) {
+    if (scenarioLocked && ['incident', 'exit', 'barrier', 'edit'].includes(modeToSet)) {
+        showStatus("Editing is locked. Unlock to make changes.", "info");
+        return;
+    }
+
+    const currentActiveButton = document.querySelector('.mode-button.active');
+    let newMode = modeToSet;
+
+    if (currentActiveButton && currentActiveButton.dataset.mode === modeToSet) {
+        currentActiveButton.classList.remove('active');
+        newMode = null; 
+    } else {
+        if (currentActiveButton) currentActiveButton.classList.remove('active');
+        if (modeToSet) {
+            const newActiveButton = document.querySelector(`.mode-button[data-mode="${modeToSet}"]`);
+            if (newActiveButton) newActiveButton.classList.add('active');
+        }
+    }
+    activeMode = newMode; 
+
+    // Clean up interactions
+    if (drawInteraction) mainMap.removeInteraction(drawInteraction); drawInteraction = null;
+    if (modifyInteraction && mainMap.getInteractions().getArray().includes(modifyInteraction)) mainMap.removeInteraction(modifyInteraction);
+    if (clickSelectInteraction && mainMap.getInteractions().getArray().includes(clickSelectInteraction)) mainMap.removeInteraction(clickSelectInteraction);
+    // dragBoxSelectInteraction removed
+
+    if (clearCurrentSelection) {
+        selectedFeaturesCollection.clear();
+        selectedFeature = null; 
+    }
+
+    const propertiesPanel = document.getElementById('properties-panel');
+    if (activeMode !== 'edit' || selectedFeaturesCollection.getLength() === 0) {
+        hidePropertiesPanel();
+    }
+    document.getElementById('capacity-container').style.display = 'none';
+
+
+    switch(activeMode) { 
+        case 'incident':
+            addDrawInteraction('Point', 'evac_group');
+            document.getElementById('capacity-container').style.display = 'block';
+            document.getElementById('capacity').value = 1;
+            break;
+        case 'exit':
+            addDrawInteraction('Point', 'exit');
+            break;
+        case 'barrier':
+            addDrawInteraction('LineString', 'barrier');
+            break;
+        case 'edit':
+            if (clickSelectInteraction) mainMap.addInteraction(clickSelectInteraction);
+            if (modifyInteraction) mainMap.addInteraction(modifyInteraction);
+            document.getElementById('select-mode-click').classList.add('active'); // Ensure click select button is active styled
+            if (selectedFeaturesCollection.getLength() > 0) {
+                showPropertiesPanel(selectedFeaturesCollection.item(0)); 
+            }
+            break;
+        default: 
+             document.getElementById('select-mode-click').classList.remove('active'); // Deactivate click select button style
+            break;
+    }
+}
+
+function cancelInteractionsAndDeselectMode() {
+    setMode(null, true); 
+}
+
+
+function initializeInteractions() {
+    clickSelectInteraction = new ol.interaction.Select({
+        condition: ol.events.condition.click,
+        layers: [evacGroupsLayer, exitsLayer, barriersLayer, drawnItemsLayer],
+        style: selectedFeatureStyle,
+        features: selectedFeaturesCollection,
+        multi: ol.events.condition.platformModifierKeyOnly, 
+        hitTolerance: 5
+    });
+
+    clickSelectInteraction.on('select', function(e) {
+        if (selectedFeaturesCollection.getLength() > 0) {
+            selectedFeature = selectedFeaturesCollection.item(selectedFeaturesCollection.getLength() - 1); 
+            showPropertiesPanel(selectedFeature);
+            if (activeMode !== 'edit' && !scenarioLocked) {
+                setMode('edit', false); 
+            }
+        } else {
+            selectedFeature = null;
+            hidePropertiesPanel();
+        }
+         // Update active state of the click select button
+        document.getElementById('select-mode-click').classList.toggle('active', selectedFeaturesCollection.getLength() > 0 && activeMode === 'edit');
+    });
+
+    // dragBoxSelectInteraction and its listeners are removed.
+
+    modifyInteraction = new ol.interaction.Modify({
+        features: selectedFeaturesCollection 
+    });
+
+    modifyInteraction.on('modifyend', function(e) {
+        e.features.forEach(feature => { 
+            if (feature && feature.getId()) {
+                updateFeatureGeometry(feature);
+            } else {
+                showError("Cannot modify unsaved feature.");
+            }
+        });
+    });
+
+    // Listener for click select button (though it's mostly visual now, as edit mode controls interaction addition)
+    document.getElementById('select-mode-click').addEventListener('click', () => {
+        if (activeMode !== 'edit') {
+            setMode('edit');
+        } else { // If already in edit mode, ensure click interaction is primary
+            if (clickSelectInteraction && !mainMap.getInteractions().getArray().includes(clickSelectInteraction)) {
+                 mainMap.addInteraction(clickSelectInteraction);
+            }
+            document.getElementById('select-mode-click').classList.add('active');
+        }
+    });
+}
+
+// setActiveSelectTool function removed as rectangle select is gone.
+
+function addDrawInteraction(geometryType, featureType) {
+    if (scenarioLocked) return;
+    drawInteraction = new ol.interaction.Draw({
+        source: drawSource, type: geometryType
+    });
+    drawInteraction.on('drawstart', () => { selectedFeaturesCollection.clear(); selectedFeature = null; hidePropertiesPanel(); });
+    drawInteraction.on('drawend', function(event) {
+        const feature = event.feature;
+        feature.set('featureType', featureType);
+        if (featureType === 'evac_group') {
+            feature.set('capacity', parseInt(document.getElementById('capacity').value) || 1);
+        }
+        saveFeature(feature);
+        if (drawInteraction) mainMap.removeInteraction(drawInteraction); 
+        drawInteraction = null;
+    });
+    mainMap.addInteraction(drawInteraction);
+}
+
+// --- Properties Panel ---
+function showPropertiesPanel(featureToShow) {
+    if (scenarioLocked || !featureToShow) { hidePropertiesPanel(); return; }
+    const panel = document.getElementById('properties-panel');
+    const capacityContainer = document.getElementById('capacity-container');
+    const featureType = featureToShow.get('featureType');
+
+    capacityContainer.style.display = (featureType === 'evac_group') ? 'block' : 'none';
+    if (featureType === 'evac_group') {
+        document.getElementById('capacity').value = featureToShow.get('capacity') || 1;
+    }
+    panel.style.display = 'block';
+}
+function hidePropertiesPanel() {
+    document.getElementById('properties-panel').style.display = 'none';
+    document.getElementById('capacity-container').style.display = 'none';
+}
+
+// --- Feature CRUD Operations ---
+async function saveFeature(feature) {
+    if (scenarioLocked) return;
+    const featureType = feature.get('featureType');
+    showLoading(`Saving ${featureType}...`);
+
+    const geometry = feature.getGeometry(); // No clone, no transform
+    const geojsonGeom = geoJsonFormat.writeGeometryObject(geometry); // Gets geometry in map's current projection
+    const data = { geom: JSON.stringify(geojsonGeom) }; // Stringify the GeoJSON object
+
+    if (featureType === 'evac_group') data.capacity = feature.get('capacity') || 1;
+
+    try {
+        const response = await fetch(`/api/scenario/${scenarioId}/${featureType}/new`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error(`Save failed: ${response.statusText}`);
+        const result = await response.json();
+
+        if (result.id) {
+            feature.setId(result.id); 
+            feature.set('id', result.id); 
+
+            drawSource.removeFeature(feature); 
+            const targetSource = (featureType === 'evac_group') ? evacGroupsSource : (featureType === 'exit') ? exitsSource : barriersSource;
+            if (targetSource) targetSource.addFeature(feature);
+
+            showStatus(`${featureType} saved (ID: ${result.id}).`);
+            if (routesExist) await markRoutesAsInvalid();
+        } else { throw new Error('Save operation did not return an ID.'); }
+    } catch (error) {
+        console.error('Error saving feature:', error); showError(`Save error: ${error.message}`);
+        drawSource.removeFeature(feature); 
+    } finally {
+        hideLoading(); updateActionButtonsVisibility();
+    }
+}
+
+async function updateFeatureGeometry(feature) {
+    if (scenarioLocked || !feature || !feature.getId()) return;
+    const featureType = feature.get('featureType');
+    const featureId = feature.getId();
+    showLoading(`Updating ${featureType} geometry...`);
+
+    const geometry = feature.getGeometry(); // No clone, no transform
+    const geojsonGeom = geoJsonFormat.writeGeometryObject(geometry); // Geometry in map's current projection
+    const data = { geom: JSON.stringify(geojsonGeom) }; // Stringify the GeoJSON object
+
+    try {
+        const response = await fetch(`/api/scenario/${scenarioId}/${featureType}/edit/${featureId}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error(`Update geometry failed: ${response.statusText}`);
+        await response.json(); 
+        showStatus(`${featureType} geometry updated.`);
+        if (routesExist) await markRoutesAsInvalid();
+    } catch (error) {
+        console.error('Error updating feature geometry:', error); showError(`Update error: ${error.message}`);
+    } finally { hideLoading(); }
+}
+
+async function updateFeatureProperties() {
+    if (scenarioLocked || selectedFeaturesCollection.getLength() === 0) { showError("No feature selected or editing locked."); return; }
+    const featureToUpdate = selectedFeaturesCollection.item(0); 
+    if (!featureToUpdate || !featureToUpdate.getId()) { showError("Selected feature not saved yet."); return; }
+
+    const featureType = featureToUpdate.get('featureType');
+    const featureId = featureToUpdate.getId();
+    const data = {};
+
+    if (featureType === 'evac_group') {
+        const newCapacity = parseInt(document.getElementById('capacity').value);
+        if (isNaN(newCapacity) || newCapacity < 1) { showError("Invalid capacity value."); return; }
+        data.capacity = newCapacity;
+    } else { showStatus("No updatable properties for this type.", "info"); return; }
+
+    showLoading(`Updating ${featureType} properties...`);
+    try {
+        const response = await fetch(`/api/scenario/${scenarioId}/${featureType}/edit/${featureId}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error(`Property update failed: ${response.statusText}`);
+        await response.json();
+
+        if (data.capacity !== undefined) featureToUpdate.set('capacity', data.capacity);
+        showStatus(`${featureType} properties updated.`);
+        if (routesExist) await markRoutesAsInvalid();
+        if (featureType === 'evac_group') evacGroupsLayer.getSource().changed(); 
+    } catch (error) {
+        console.error('Error updating properties:', error); showError(`Update error: ${error.message}`);
+    } finally { hideLoading(); }
+}
+
+async function deleteSelectedFeatures() {
+    if (scenarioLocked || selectedFeaturesCollection.getLength() === 0) { showError("No features selected or editing locked."); return; }
+    const featuresToDelete = selectedFeaturesCollection.getArray().slice(); 
+
+    if (!confirm(`Delete ${featuresToDelete.length} selected feature(s)?`)) return;
+    showLoading(`Deleting ${featuresToDelete.length} feature(s)...`);
+    let successes = 0;
+
+    for (const feature of featuresToDelete) {
+        if (!feature.getId() || !feature.get('featureType')) { 
+            selectedFeaturesCollection.remove(feature); 
+            if(drawSource.getFeatures().includes(feature)) drawSource.removeFeature(feature);
+            continue;
+        }
+        const featureType = feature.get('featureType');
+        const featureId = feature.getId();
+        try {
+            const response = await fetch(`/api/scenario/${scenarioId}/${featureType}/delete/${featureId}`, {
+                method: 'POST', headers: { 'X-CSRFToken': csrfToken }
+            });
+            if (!response.ok) throw new Error(`Deletion of ${featureId} failed: ${response.statusText}`);
+            await response.json();
+
+            const source = (featureType === 'evac_group') ? evacGroupsSource : (featureType === 'exit') ? exitsSource : barriersSource;
+            if (source && source.getFeatureById(featureId)) source.removeFeature(feature); // Check if feature exists before removing
+            selectedFeaturesCollection.remove(feature); 
+            successes++;
+        } catch (error) {
+            console.error(`Error deleting ${featureType} ID ${featureId}:`, error);
+            showError(`Error deleting ${featureType} ID ${featureId}.`);
+        }
+    }
+    hideLoading();
+    if (successes > 0) showStatus(`${successes} feature(s) deleted.`);
+    if (successes !== featuresToDelete.filter(f=>f.getId()).length) showError("Some features could not be deleted.");
+
+    if (selectedFeaturesCollection.getLength() === 0) { selectedFeature = null; hidePropertiesPanel(); }
+    else { selectedFeature = selectedFeaturesCollection.item(0); showPropertiesPanel(selectedFeature); } 
+
+    if (routesExist && successes > 0) await markRoutesAsInvalid();
+    updateActionButtonsVisibility();
+}
+
+async function updateScenarioName() {
+    const newName = document.getElementById('scenarioName').value;
+    if (newName === "{{ scenario.name }}") return;
+    showLoading("Updating scenario name...");
+    try {
+        const response = await fetch("{% url 'simulator:rename_scenario' scenario.id %}", { 
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify({ name: newName })
+        });
+        if (!response.ok) throw new Error(`Update name failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status === 'success') {
+            showStatus("Scenario name updated."); document.title = `{{ building.name }} - ${newName}`;
+        } else { throw new Error(result.message || "Failed to update name."); }
+    } catch (error) {
+        console.error("Error updating scenario name:", error); showError(`Update name error: ${error.message}`);
+        document.getElementById('scenarioName').value = "{{ scenario.name }}"; 
+    } finally { hideLoading(); }
+}
+
+// --- Routes and Simulation ---
+function updateActionButtonsVisibility() {
+    const hasEvacGroups = evacGroupsSource.getFeatures().length > 0;
+    const hasExits = exitsSource.getFeatures().length > 0;
+    document.getElementById('calculate-routes-btn').style.display = (hasEvacGroups && hasExits && !scenarioLocked) ? 'block' : 'none';
+    document.getElementById('run-simulation-btn').style.display = (routesExist && routesAreValid && !scenarioLocked) ? 'block' : 'none';
+}
+
+function checkRoutesState() {
+    routesExist = evacRoutesSource.getFeatures().length > 0;
+    routesAreValid = routesExist ? evacRoutesSource.getFeatures().every(f => f.get('valid') !== false) : false;
+    evacRoutesLayer.getSource().changed(); 
+    updateActionButtonsVisibility();
+}
+
+async function calculateRoutes() {
+    if (scenarioLocked) { showError("Editing locked."); return; }
+    showLoading('Calculating routes...');
+    try {
+        const response = await fetch("{% url 'simulator:calculate_routes' building.id scenario.id %}", { 
+            method: 'POST', headers: { 'X-CSRFToken': csrfToken }
+        });
+        if (!response.ok) throw new Error(`Route calculation request failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status === 'success' || result.message?.includes('started')) {
+            showStatus(result.message || 'Route calculation initiated.', 'info');
+            evacRoutesSource.refresh(); 
+        } else { throw new Error(result.message || 'Route calculation failed.'); }
+    } catch (error) { console.error('Error calculating routes:', error); showError(`Route error: ${error.message}`);
+    } finally { hideLoading(); }
+}
+
+async function runSimulation() {
+    if (scenarioLocked || !routesAreValid) { showError("Cannot run: Scenario locked or routes invalid."); return; }
+    showLoading('Running simulation...');
+    try {
+        const response = await fetch("{% url 'simulator:run_simulation' building.id scenario.id %}", { 
+            method: 'POST', headers: { 'X-CSRFToken': csrfToken }
+        });
+        if (!response.ok) throw new Error(`Simulation request failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status === 'success' || result.message?.includes('started')) {
+            showStatus('Simulation completed/started.');
+            handlePostSimulationActions(result.simulation_status || "{{ scenario.simulation_status }}"); 
+        } else { throw new Error(result.message || 'Simulation run failed.'); }
+    } catch (error) { console.error('Error running simulation:', error); showError(`Simulation error: ${error.message}`);
+    } finally { hideLoading(); }
+}
+
+async function markRoutesAsInvalid() { 
+    if (!routesExist) return;
+    routesAreValid = false;
+    evacRoutesSource.getFeatures().forEach(feature => feature.set('valid', false));
+    evacRoutesLayer.getSource().changed();
+    updateActionButtonsVisibility();
+    showStatus("Routes are outdated. Please recalculate.", "info");
+    try { 
+        await fetch("{% url 'simulator:invalidate_routes' scenario.id %}", { 
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+        });
+    } catch (error) { console.warn("Failed to mark routes as invalid on server:", error); }
+}
+
+// --- Scenario State Management ---
+function checkSimulationStatus() { 
+    handlePostSimulationActions("{{ scenario.simulation_status }}");
+}
+
+function handlePostSimulationActions(simulationStatusString) {
+    const isComplete = simulationStatusString?.toLowerCase() === 'complete';
+    document.getElementById('edit-lock-container').style.display = isComplete ? 'block' : 'none';
+    document.getElementById('view-simulation-results-btn').style.display = isComplete ? 'block' : 'none';
+    const lockSwitch = document.getElementById('editLockSwitch');
+    if (isComplete) {
+        lockSwitch.checked = true; 
+        toggleEditLock(true, false); 
+    } else {
+        lockSwitch.checked = false;
+        toggleEditLock(false, false); 
+    }
+}
+
+async function toggleEditLock(isLocked, updateServer = true) {
+    scenarioLocked = isLocked;
+    document.getElementById('editLockSwitch').checked = isLocked;
+
+    document.querySelectorAll('.mode-button').forEach(btn => {
+        btn.disabled = isLocked;
+        if(isLocked) btn.classList.add('disabled'); else btn.classList.remove('disabled');
+    });
+    const propsPanel = document.getElementById('properties-panel');
+    if (propsPanel.style.display === 'block') { 
+        propsPanel.querySelector('.btn-primary').disabled = isLocked;
+        propsPanel.querySelector('.btn-danger').disabled = isLocked;
+    }
+
+    if (isLocked) {
+        setMode(null); 
+        showStatus("Editing LOCKED: Simulation results exist.", "info");
+    } else {
+        showStatus("Editing UNLOCKED. Changes may require recalculating routes/simulation.", "info");
+    }
+    updateActionButtonsVisibility();
+
+    if (updateServer) {
+        try { 
+            console.log("Server-side lock update would go here if API endpoint is implemented.");
+        } catch (error) { console.warn("Failed to update lock state on server:", error); }
+    }
+}
+
+function viewSimulationResults() {
+    window.location.href = "{% url 'simulator:simulation_results' building.id scenario.id %}"; 
+}
+async function copyScenario() {
+    const newName = `${document.getElementById('scenarioName').value || "{{scenario.name}}"} (Copy)`;
+    if (!confirm(`Copy scenario as "${newName}"?`)) return;
+    showLoading("Copying scenario...");
+    try {
+        const response = await fetch("{% url 'simulator:copy_scenario' building.id scenario.id %}", { 
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify({ new_name: newName })
+        });
+        if (!response.ok) throw new Error(`Copy request failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status === 'success' && result.new_scenario_id) {
+            showStatus("Scenario copied. Redirecting...", "success");
+            window.location.href = `/building/${buildingId}/scenario/${result.new_scenario_id}/map`; 
+        } else { throw new Error(result.message || 'Copy operation failed.'); }
+    } catch (error) { console.error("Error copying scenario:", error); showError(`Copy error: ${error.message}`);
+    } finally { hideLoading(); }
+}
+
+// --- Utility Functions ---
+function showStatus(message, type = 'success') {
+    const statusEl = document.getElementById('status-message');
+    statusEl.textContent = message; statusEl.className = `status-message ${type}`; statusEl.style.display = 'block';
+    if (type !== 'info' && type !== 'error') setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+    else if (type === 'error') setTimeout(() => { statusEl.style.display = 'none'; }, 5000); 
+}
+function showError(message) { showStatus(message, 'error'); }
+function showLoading(message = 'Loading...') { document.getElementById('loading-text').textContent = message; document.getElementById('loading-indicator').style.display = 'flex'; }
+function hideLoading() { document.getElementById('loading-indicator').style.display = 'none'; }
+function getCsrfToken() { return document.querySelector('[name=csrfmiddlewaretoken]')?.value || document.cookie.split('; ').find(row => row.startsWith('csrftoken='))?.split('=')[1]; }
+
+</script>
+{% endblock %}
+
+{% endblock %}

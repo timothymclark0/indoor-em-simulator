@@ -1,0 +1,916 @@
+{% extends 'core.html' %}
+{% block title %}{{ building.name }} - {{ scenario.name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.5.0/ol.css">
+<style>
+    /* Layout */
+    .navbar-brand img {
+        height: 40px;
+        margin-right: 10px;
+    }
+    /* override core style for map only */ 
+    main.container.mt-4 {
+        display: flex;
+        height: calc(100vh - 65px);
+        width: 100vw;
+        margin-right: 0px;
+        margin-left: 0px;
+        max-width:100vw;
+        padding: 0px;
+        margin-top: 0px !important;
+    }
+    .sidebar {
+        width: 20%;
+        background: #f8f9fa;
+        padding: 20px;
+        overflow-y: auto;
+        transition: width 0.3s ease;
+        border-right: 1px solid #dee2e6;
+    }
+    .sidebar.collapsed {
+        width: 0;
+        padding: 0;
+    }
+    .sidebar-toggle {
+        position: absolute;
+        left: 20%;
+        top: 70px;
+        z-index: 1000;
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 0 4px 4px 0;
+        padding: 8px;
+        cursor: pointer;
+        transition: left 0.3s ease;
+    }
+    .sidebar-toggle.collapsed {
+        left: 0;
+    }
+    .map-container {
+        flex-grow: 1;
+        position: relative;
+    }
+    #map {
+        height: 100%;
+        width: 100%;
+    }
+
+    /* Floating Menu */
+    .floating-menu {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        min-width: 250px;
+    }
+    .mode-buttons {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        margin-bottom: 15px;
+    }
+    .mode-button {
+        padding: 8px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+    .mode-button:hover {
+        background: #f8f9fa;
+    }
+    .mode-button.active {
+        background: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+
+    /* Feature Styles */
+    .feature-label {
+        background: white;
+        border: 1px solid #dee2e6;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    .feature-selected {
+        filter: brightness(1.3);
+        box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.5);
+        z-index: 1000 !important;
+    }
+    .feature-dragging {
+        opacity: 0.7;
+        filter: brightness(1.2);
+    }
+
+    /* Properties Panel */
+    .properties-panel {
+        padding-top: 15px;
+        border-top: 1px solid #dee2e6;
+        display: none;
+    }
+
+    /* Status Messages */
+    .status-message {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        border-radius: 4px;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        display: none;
+        z-index: 2000;
+    }
+    .status-message.success {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+    .status-message.error {
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+
+    /* Loading Indicator */
+    .loading-indicator {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.9);
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        display: none;
+        z-index: 2000;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+    <h5>Quick Guide</h5>
+    <ul class="list-unstyled">
+        <li class="mb-3">
+            <strong>Incidents</strong>
+            <p class="small text-muted">Groups of people that need to evacuate. Each incident has a group size.</p>
+        </li>
+        <li class="mb-3">
+            <strong>Exits</strong>
+            <p class="small text-muted">Safe locations where people can evacuate to.</p>
+        </li>
+        <li class="mb-3">
+            <strong>Barriers</strong>
+            <p class="small text-muted">Obstacles or blocked paths that evacuees must avoid.</p>
+        </li>
+    </ul>
+    <h5>Workflow</h5>
+    <ol class="small">
+        <li>Add incidents and set their group sizes</li>
+        <li>Add exits where people can evacuate to</li>
+        <li>Add any barriers or obstacles</li>
+        <li>Generate evacuation routes</li>
+        <li>Run evacuation simulation</li>
+    </ol>
+    <div class="small text-muted mt-4">
+        <p><strong>Keyboard Shortcuts:</strong></p>
+        <ul class="list-unstyled">
+            <li>I - Incident Mode</li>
+            <li>E - Exit Mode</li>
+            <li>B - Barrier Mode</li>
+            <li>M - Edit Mode</li>
+            <li>Esc - Cancel/Deselect</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Sidebar Toggle -->
+<button class="sidebar-toggle" onclick="toggleSidebar()">
+    <i class="bi bi-chevron-left"></i>
+</button>
+
+<!-- Map Container -->
+<div class="map-container">
+    <div id="map"></div>
+
+    <!-- Floating Menu -->
+    <div class="floating-menu">
+        <div class="mode-buttons">
+            <button class="mode-button" data-mode="incident" title="Shortcut: I">
+                <i class="bi bi-person-exclamation me-1"></i> Incident
+            </button>
+            <button class="mode-button" data-mode="exit" title="Shortcut: E">
+                <i class="bi bi-door-open me-1"></i> Exit
+            </button>
+            <button class="mode-button" data-mode="barrier" title="Shortcut: B">
+                <i class="bi bi-slash-square me-1"></i> Barrier
+            </button>
+            <button class="mode-button" data-mode="edit" title="Shortcut: M">
+                <i class="bi bi-pencil me-1"></i> Edit
+            </button>
+        </div>
+
+        <!-- Properties Panel -->
+        <div class="properties-panel" id="properties-panel">
+            <div class="mb-3" id="group-size-container">
+                <label class="form-label">Group Size</label>
+                <input type="number" class="form-control" id="group-size" min="1" value="1">
+            </div>
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary" onclick="updateFeature()">Update</button>
+                <button class="btn btn-danger" onclick="deleteFeature()">Delete</button>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="mt-3">
+            <button id="calculate-routes-btn" class="btn btn-success w-100" style="display: none;" onclick="calculateRoutes()">
+                Calculate Routes
+            </button>
+            <button id="run-simulation-btn" class="btn btn-primary w-100 mt-2" style="display: none;" onclick="runSimulation()">
+                Run Simulation
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Status Message -->
+<div class="status-message" id="status-message"></div>
+
+<!-- Loading Indicator -->
+<div class="loading-indicator" id="loading-indicator">
+    <div class="d-flex align-items-center">
+        <div class="spinner-border text-primary me-2"></div>
+        <span id="loading-text">Loading...</span>
+    </div>
+</div>
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.5.0/dist/ol.js"></script>
+<script>
+// Globals to track state
+let activeMode = null;
+let activeFeature = null;
+let draw = null;
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.querySelector('.sidebar-toggle');
+    
+    sidebar.classList.toggle('collapsed');
+    toggle.classList.toggle('collapsed');
+    toggle.querySelector('i').classList.toggle('bi-chevron-left');
+    toggle.querySelector('i').classList.toggle('bi-chevron-right');
+    
+    //mainMap.invalidateSize();
+}
+
+function showStatus(message, type = 'success') {
+    const statusEl = document.getElementById('status-message');
+    statusEl.textContent = message;
+    statusEl.className = `status-message ${type}`;
+    statusEl.style.display = 'block';
+    
+    if (type !== 'info') {  // Don't auto-hide info messages
+        setTimeout(() => {
+            statusEl.style.display = 'none';
+        }, 3000);
+    }
+}
+
+function showError(message) {
+    showStatus(message, 'error');
+}
+
+function showLoading(message = 'Loading...') {
+    document.getElementById('loading-text').textContent = message;
+    document.getElementById('loading-indicator').style.display = 'flex';
+}
+
+function hideLoading() {
+    document.getElementById('loading-indicator').style.display = 'none';
+}
+var details = new ol.layer.Vector({
+    source: new ol.source.Vector({
+        format: new ol.format.GeoJSON(),
+        url: "{% url 'simulator:api_geojson'%}" + "?model=detail&fk=level&fk_id=1"
+    })
+});
+
+var drawSource = new ol.source.Vector({
+    wrapX: false});
+var drawnItems = new ol.layer.Vector({
+    source: drawSource
+    });
+
+var evacGroups = new ol.layer.Vector({
+    source: new ol.source.Vector({
+        format: new ol.format.GeoJSON,
+        url: "{% url 'simulator:api_geojson'%}" + "?model=evac_group&fk=scenario&fk_id={{ scenario.id }}"
+    })
+});
+
+var levelSource = new ol.source.Vector({
+    format: new ol.format.GeoJSON(),
+    url: "{% url 'simulator:api_geojson'%}" + "?model=level&fk=building&fk_id={{ building.id }}"
+});
+var levels = new ol.layer.Vector({
+    source: levelSource
+});
+var exits = new ol.layer.Vector({
+    source: new ol.source.Vector({
+        format: new ol.format.GeoJSON(),
+        url: "{% url 'simulator:api_geojson'%}" + "?model=exit&fk=scenario&fk_id={{ scenario.id }}"
+    })
+})
+var barriers = new ol.layer.Vector({
+    source: new ol.source.Vector({
+        format: new ol.format.GeoJSON(),
+        url: "{% url 'simulator:api_geojson'%}" + "?model=barrier&fk=scenario&fk_id={{ scenario.id }}"
+    })
+})
+
+
+levels.setStyle({
+    'stroke-color': 'black',
+    'stroke-width': 4,
+    'fill-color': 'rgba(10,10,10,0.3)'
+});
+details.setStyle({
+    'stroke-color': 'black',
+    'stroke-width': 1,
+});
+evacGroups.setStyle(function(f){
+    return {
+        'fill-color': 'rgb(51, 131, 250)',
+        'stroke-color': 'rgb(14, 37, 71)',
+        'radius': f.capacity,
+    };
+});
+var square = new ol.style.Style({
+    image: new ol.style.RegularShape({
+      fill: new ol.style.Fill({color: 'orange'}),
+      stroke: new ol.style.Stroke({color: 'black', width: 0.5}), // Changed 'size' to 'width'
+      points: 4,
+      radius: 15,
+      angle: Math.PI / 4,
+    })
+  });
+  
+  // Assuming 'exits' is your vector layer (ol.layer.Vector)
+  exits.setStyle(function(feature) {
+    return square;
+  });
+barriers.setStyle({
+    'stroke-width': 2,
+    'stroke-color':'red'
+})
+var mainMap = new ol.Map({
+    target: "map",
+    layers: [
+      new ol.layer.Tile({
+        source: new ol.source.OSM() // OpenStreetMap as base layer
+      }),
+      levels,
+      details,
+      evacGroups,
+      exits,
+      barriers,
+      drawnItems,
+    ],
+    view: new ol.View({
+      center: [{{ center.x }}, {{ center.y }}],
+      zoom: 18
+    })
+  });
+
+// Initialize the map and features
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up keyboard shortcuts
+    document.addEventListener('keydown', function(event) {
+        switch(event.key.toLowerCase()) {
+            case 'i': setMode('incident'); break;
+            case 'e': setMode('exit'); break;
+            case 'b': setMode('barrier'); break;
+            case 'm': setMode('edit'); break;
+            case 'escape': cancelDraw(); break;
+        }
+    });
+
+    // Initialize buttons and UI state
+    document.querySelectorAll('.mode-button').forEach(button => {
+        button.addEventListener('click', function() {
+            setMode(this.dataset.mode);
+        });
+    });
+
+    // Initialize the properties panel
+    initPropertiesPanel();
+
+    // Load existing features
+    loadExistingFeatures();
+});
+
+// Set active drawing mode
+function setMode(mode) {
+    // Clear any existing draw interaction
+    if (draw) {
+        mainMap.removeInteraction(draw);
+        draw = null;
+    }
+    if (mode) {
+        const activeButton = document.querySelector(`.mode-button[data-mode="${mode}"]`);
+        if (activeButton.classList.contains('active')) {
+            activeButton.classList.toggle('active');
+        } else {    
+    // Update UI to show active mode
+    document.querySelectorAll('.mode-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    
+    if (activeButton) {
+        activeButton.classList.add('active');
+    }
+
+    activeMode = mode;
+
+    // Handle different modes
+    switch(mode) {
+        case 'incident':
+            addDrawInteraction('Point', 'evac_group');
+            break;
+        case 'exit':
+            addDrawInteraction('Point', 'exit');
+            break;
+        case 'barrier':
+            addDrawInteraction('LineString', 'barrier');
+            break;
+        case 'edit':
+            addSelectInteraction();
+            break;
+        }
+    }
+}
+}
+
+// Add draw interaction based on geometry type
+function addDrawInteraction(geometryType, featureType) {
+    draw = new ol.interaction.Draw({
+        source: drawSource,
+        type: geometryType
+    });
+    
+    // Store feature type in the interaction to use when feature is created
+    draw.set('featureType', featureType);
+
+    // Add listener for drawend event
+    draw.on('drawend', function(event) {
+        const feature = event.feature;
+        feature.set('featureType', this.get('featureType'));
+        
+        // For evac_group, get group size from UI
+        if (featureType === 'evac_group') {
+            const groupSize = parseInt(document.getElementById('group-size').value) || 1;
+            feature.set('capacity', groupSize);
+        }
+        
+        // Save feature to the database
+        saveFeature(feature);
+        
+        // If it's not "keep drawing", remove the interaction
+        //if (!event.originalEvent.shiftKey) {
+        //    mainMap.removeInteraction(draw);
+        //    draw = null;
+        //    setMode('edit');
+        //}
+    });
+
+    mainMap.addInteraction(draw);
+}
+
+// Add select and modify interactions for edit mode
+function addSelectInteraction() {
+    // Create a select interaction
+    const select = new ol.interaction.Select({
+        condition: ol.events.condition.click
+    });
+    
+    // Handle selection changes
+    select.on('select', function(event) {
+        if (event.selected.length > 0) {
+            activeFeature = event.selected[0];
+            showPropertiesPanel(activeFeature);
+        } else {
+            hidePropertiesPanel();
+            activeFeature = null;
+        }
+    });
+
+    // Create a modify interaction
+    const modify = new ol.interaction.Modify({
+        features: select.getFeatures()
+    });
+
+    // Handle feature modification
+    modify.on('modifyend', function(event) {
+        if (activeFeature) {
+            updateFeatureGeometry(activeFeature);
+        }
+    });
+
+    mainMap.addInteraction(select);
+    mainMap.addInteraction(modify);
+}
+
+// Cancel current drawing
+function cancelDraw() {
+    if (draw) {
+        mainMap.removeInteraction(draw);
+        draw = null;
+    }
+    hidePropertiesPanel();
+    activeFeature = null;
+}
+
+// Save feature to the database
+function saveFeature(feature) {
+    const featureType = feature.get('featureType');
+    showLoading(`Creating ${featureType}...`);
+
+    // Get the feature's geometry in GeoJSON format
+    const format = new ol.format.GeoJSON();
+    const geojson = format.writeGeometryObject(feature.getGeometry(), {
+        dataProjection: 'EPSG:4326',
+        featureProjection: 'EPSG:3857'
+    });
+
+    // Prepare data for API
+    const data = {
+        geom: JSON.stringify(geojson)
+    };
+
+    // Add capacity for evacuation groups
+    if (featureType === 'evac_group') {
+        data.capacity = feature.get('capacity') || 1;
+    }
+
+    // Send data to the server
+    fetch(`/api/scenario/{{ scenario.id }}/${featureType}/new`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        // If successful, update the feature with the server-assigned ID
+        if (data.id) {
+            feature.setId(data.id);
+            feature.set('db_id', data.id);
+        }
+        
+        showStatus(`${featureType} created successfully`);
+        
+        // Update UI to show routes/simulation buttons if needed
+        updateActionButtons();
+    })
+    .catch(error => {
+        console.error('Error saving feature:', error);
+        showError(`Failed to create ${featureType}`);
+        // Remove the feature from the source as it wasn't saved
+        drawSource.removeFeature(feature);
+    })
+    .finally(() => {
+        hideLoading();
+    });
+}
+
+// Update feature geometry after modification
+function updateFeatureGeometry(feature) {
+    if (!feature) return;
+    const featureType = feature.get('featureType');
+    const featureId = feature.get('db_id');
+
+    if (!featureType || !featureId) {
+        console.error('Feature missing type or ID');
+        return;
+    }
+
+    showLoading(`Updating ${featureType}...`);
+
+    // Get the feature's geometry in GeoJSON format
+    const format = new ol.format.GeoJSON();
+    const geojson = format.writeGeometryObject(feature.getGeometry(), {
+        dataProjection: 'EPSG:4326',
+        featureProjection: 'EPSG:3857'
+    });
+
+    // Prepare data for API
+    const data = {
+        geom: JSON.stringify(geojson)
+    };
+
+    // Send data to the server
+    fetch(`/api/scenario/{{ scenario.id }}/${featureType}/edit/${featureId}`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showStatus(`${featureType} updated successfully`);
+    })
+    .catch(error => {
+        console.error('Error updating feature:', error);
+        showError(`Failed to update ${featureType}`);
+    })
+    .finally(() => {
+        hideLoading();
+    });
+}
+
+// Update feature properties from the properties panel
+function updateFeature() {
+    if (!activeFeature) return;
+    const featureType = activeFeature.get('featureType');
+    const featureId = activeFeature.get('db_id');
+
+    if (!featureType || !featureId) {
+        console.error('Feature missing type or ID');
+        return;
+    }
+
+    // Get updated properties from the form
+    const data = {};
+
+    if (featureType === 'evac_group') {
+        data.capacity = parseInt(document.getElementById('group-size').value) || 1;
+        activeFeature.set('capacity', data.capacity);
+    }
+
+    // Send the update request
+    showLoading(`Updating ${featureType}...`);
+
+    fetch(`/api/scenario/{{ scenario.id }}/${featureType}/edit/${featureId}`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showStatus(`${featureType} updated successfully`);
+    })
+    .catch(error => {
+        console.error('Error updating feature:', error);
+        showError(`Failed to update ${featureType}`);
+    })
+    .finally(() => {
+        hideLoading();
+    });
+}
+
+// Delete the active feature
+function deleteFeature() {
+    if (!activeFeature) return;
+    const featureType = activeFeature.get('featureType');
+    const featureId = activeFeature.get('db_id');
+
+    if (!featureType || !featureId) {
+        console.error('Feature missing type or ID');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete this ${featureType}?`)) {
+        return;
+    }
+
+    showLoading(`Deleting ${featureType}...`);
+
+    fetch(`/api/scenario/{{ scenario.id }}/${featureType}/delete/${featureId}`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Remove the feature from the source
+        drawSource.removeFeature(activeFeature);
+        activeFeature = null;
+        hidePropertiesPanel();
+        
+        showStatus(`${featureType} deleted successfully`);
+        
+        // Update UI to show/hide routes/simulation buttons
+        updateActionButtons();
+    })
+    .catch(error => {
+        console.error('Error deleting feature:', error);
+        showError(`Failed to delete ${featureType}`);
+    })
+    .finally(() => {
+        hideLoading();
+    });
+}
+
+// Load existing features from the database
+function loadExistingFeatures() {
+    // This is already handled by the vector sources in the original code,
+    // but we need to set up event listeners for when they load
+    // Add event listeners for layer source loading
+    [evacGroups.getSource()].forEach(source => {
+        source.on('featuresloadend', function() {
+            // Once features load, set their types and IDs from properties
+            source.getFeatures().forEach(feature => {
+                // Assuming the GeoJSON properties contain the needed info
+                const properties = feature.getProperties();
+                if (properties.id) {
+                    feature.set('db_id', properties.id);
+                    feature.setId(properties.id);
+                }
+                
+                // Determine feature type from the source
+                if (source === evacGroups.getSource()) {
+                    feature.set('featureType', 'evac_group');
+                }
+            });
+            
+            // Update action buttons based on loaded features
+            updateActionButtons();
+        });
+    });
+}
+
+// Initialize the properties panel
+function initPropertiesPanel() {
+    // Initially hidden
+    hidePropertiesPanel();
+}
+
+// Show properties panel for selected feature
+function showPropertiesPanel(feature) {
+    const panel = document.getElementById('properties-panel');
+    const groupSizeContainer = document.getElementById('group-size-container');
+    // Show/hide appropriate fields based on feature type
+    const featureType = feature.get('featureType');
+
+    if (featureType === 'evac_group') {
+        groupSizeContainer.style.display = 'block';
+        document.getElementById('group-size').value = feature.get('capacity') || 1;
+    } else {
+        groupSizeContainer.style.display = 'none';
+    }
+
+    panel.style.display = 'block';
+}
+
+// Hide properties panel
+function hidePropertiesPanel() {
+    document.getElementById('properties-panel').style.display = 'none';
+}
+
+// Update action buttons visibility based on feature counts
+function updateActionButtons() {
+    const evacGroups = drawSource.getFeatures().filter(f => f.get('featureType') === 'evac_group');
+    const exits = drawSource.getFeatures().filter(f => f.get('featureType') === 'exit');
+    
+    // Show calculate routes button if we have both incidents and exits
+    document.getElementById('calculate-routes-btn').style.display = 
+        (evacGroups.length > 0 && exits.length > 0) ? 'block' : 'none';
+
+    // Show run simulation button if routes are calculated
+    // This would need to check if routes exist, but we'll simplify for now
+    document.getElementById('run-simulation-btn').style.display = 
+        document.getElementById('calculate-routes-btn').style.display;
+}
+
+// Calculate evacuation routes
+function calculateRoutes() {
+    showLoading('Calculating routes...');
+    fetch(`/api/scenario/{{ scenario.id }}/calculate_routes`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showStatus('Routes calculated successfully');
+        
+        // Show run simulation button
+        document.getElementById('run-simulation-btn').style.display = 'block';
+        
+        // We would need to load and display the routes here
+        // This might involve refreshing a routes layer
+    })
+    .catch(error => {
+        console.error('Error calculating routes:', error);
+        showError('Failed to calculate routes');
+    })
+    .finally(() => {
+        hideLoading();
+    });
+}
+
+// Run evacuation simulation
+function runSimulation() {
+    showLoading('Running simulation...');
+    fetch(`/api/scenario/{{ scenario.id }}/run_simulation`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        showStatus('Simulation completed successfully');
+        
+        // We would need to handle displaying simulation results
+    })
+    .catch(error => {
+        console.error('Error running simulation:', error);
+        showError('Failed to run simulation');
+    })
+    .finally(() => {
+        hideLoading();
+    });
+}
+
+// Helper function to get CSRF token from cookies
+function getCsrfToken() {
+    const name = 'csrftoken';
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+</script>
+{% endblock %} 
+
+{% endblock %}

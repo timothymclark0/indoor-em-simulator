@@ -1,0 +1,22 @@
+{% extends 'core.html' %}
+{% block title %}Attach {{ layer }} to Building{% endblock %}
+
+{% block content %}
+<div class="container text-center">
+    {% if building %}
+        <h2>{{ building.name }}</h2>
+        <i>
+            <p>{{ building.st_address_1 }}</p>
+            <p>{{ building.st_address_2 }}</p>
+            <p>{{ building.city }},{{ building.state }}, {{ building.zip }}</p>
+        </i>
+    {% endif %}
+        <h3>Attach {{ layer }} to Building</h3>
+    <form action="{% url 'simulator:upload_layer' building.id layer %}" method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <h3> Upload {{ layer }} geojson file</h3>
+        {{ form }}    
+        <input type="submit" value="Submit">
+    </form>
+</div>
+{% endblock %}

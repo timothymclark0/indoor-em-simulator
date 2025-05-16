@@ -1,0 +1,55 @@
+{% extends 'core.html' %}
+{% block title %}Add New Building{% endblock %}
+
+{% block content %}
+<div class="container text-center">
+    <form action="{% url 'simulator:upload_building_form' %}" method="POST">
+        {% csrf_token %}
+        {{ form }}
+        <!--
+        <div class="row g-4 ">
+            <div class="col-12">
+                Name: {{ form.name }}
+            </div>
+            <div class="col-12">
+                Address Line 1: {{ form.st_address_1 }}
+            </div>
+            <div class="col-12">
+                Address Line 2: {{ form.st_address_2 }}
+            </div>
+            <div class="col-6">
+                City: {{ form.city }}
+            </div>
+            <div class="col-3">
+                State: {{ form.state }}
+            </div>
+            <div class="col-3">
+                Zip code: {{ form.zip_code }}
+            </div>
+            
+            <div class="col-1" id="check">
+                Upload a custom footprint?: {{ form.custom_footprint }}
+            </div>
+            <div class="col-11" id="gis-field">
+                Upload geojson: {{ form.footprint }}
+            </div>
+            
+        </div>-->
+        <input type="submit" value="Submit">
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.7.1.js" integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=" crossorigin="anonymous"></script>
+<script>
+    $("#gis-field").hide();
+    $("#check").click(function() {
+        if($(this).is("#checked")) {
+            $("#gis-field").show(250);
+        } else {
+            $("#gis-field").hide(250);
+        }
+    });
+</script>
+{% endblock %}

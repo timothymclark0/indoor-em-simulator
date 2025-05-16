@@ -1,0 +1,27 @@
+{% extends 'core.html' %}
+
+{%block title %}Create Scenario for {{ building.name }}{% endblock %}
+
+{%block content %}
+<h1>{{ building.name }} Scenario</h1>
+<div class="container text-center">
+    <form action="{% url 'simulator:create_scenario' building.id %}" method="POST">
+        {% csrf_token %}
+        <h3>Scenario</h3>
+        {{ scenario }}
+        <input type="submit" value="Submit">
+    </form>
+    <form action="{% url 'simulator:create_scenario' building.id %}" method="POST">
+        {% csrf_token %}
+        <h3>Scenario</h3>
+        {{ scenario_tag }}
+        <input type="submit" value="Submit">
+    </form>
+    <form action="{% url 'simulator:create_scenario' building.id %}" method="POST">
+        {% csrf_token %}
+        <h3>Scenario</h3>
+        {{ create_tag }}
+        <input type="submit" value="Submit">
+    </form>
+</div>
+{% endblock %}
